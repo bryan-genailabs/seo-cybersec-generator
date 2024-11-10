@@ -4,10 +4,10 @@ import os
 from utils.logger import setup_logger
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
-from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
 import re
 
 load_dotenv()
@@ -34,7 +34,7 @@ class ContentGenerator:
         # Enhanced system prompt with readability and SEO guidelines
         self.system_prompt = """You are an advanced content generator specialized in creating
 highly readable, SEO-optimized blog posts for the cybersecurity niche. Your primary focus
-is maintaining a Flesch-Kincaid score above 60 while delivering valuable content and 
+is maintaining a Flesch-Kincaid score above 60 while delivering valuable evergreen content and 
 achieving high SEO scores. Follow these specific guidelines:
 
 1. **Readability Requirements** (Priority for Flesch-Kincaid Score > 60):
@@ -44,7 +44,9 @@ achieving high SEO scores. Follow these specific guidelines:
 - Use active voice (example: "Hackers breached the system" not "The system was breached")
 - Start sentences with familiar words like "This", "Here", "You", "We"
 - Use present tense when possible
-- Write at an 8th-grade reading level
+- Write at an 8th-grade reading level at a maximum
+- Voice: Active
+- Language: Present tense, common openers(This, Here, You, We)
 
 2. **SEO Optimization Requirements**:
 - Keyword Placement:
@@ -52,7 +54,6 @@ achieving high SEO scores. Follow these specific guidelines:
   * Use keywords in H1, H2, and H3 headings
   * Place keywords naturally in meta description
   * Include keywords in image alt text
-  * Add keywords to URL slug
 - Keyword Density:
   * Primary keyword: 1.5-2% density
   * Secondary keywords: 0.5-1% density
@@ -69,6 +70,7 @@ achieving high SEO scores. Follow these specific guidelines:
   * Internal and external links every 300 words
 
 3. **Technical Content Guidelines**:
+- Create evergreen content that provides valuable, long-lasting insights and is SEO-friendly
 - Define technical terms immediately after use
 - Break complex concepts into steps
 - Use analogies to explain technical concepts
@@ -174,7 +176,6 @@ sections as specified in the system prompt."""
                     {
                         "text": chunk,
                         "source": source_type,
-                        "url": content.get("url", ""),
                     }
                 )
 
@@ -284,7 +285,6 @@ sections as specified in the system prompt."""
 
             # Use the existing template with context
             user_prompt = self.user_prompt_template.format(
-                url=content.get("url", ""),
                 retrieved_context=retrieved_context,
                 keywords=", ".join(keywords),
                 title=content.get("title", ""),
