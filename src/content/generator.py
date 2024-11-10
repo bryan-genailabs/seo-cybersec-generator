@@ -113,25 +113,59 @@ Meta Description: {meta_description}
 Content Preview: {content_preview}"""
 
     def create_knowledge_base(self, content: Dict[str, str]) -> FAISS:
-        """Create a vector store from the source content"""
+        """Create a structured vector store from the extracted content"""
         try:
-            full_content = f"""
-            Title: {content.get('title', '')}
-            Meta Description: {content.get('meta_description', '')}
-            Headers: {' | '.join(content.get('headers', []))}
-            Content: {content.get('main_content', '')}
-            """
+            # Split content into different types for better retrieval
+            document_sections = [
+                # Core content section
+                "MAIN CONTENT:\n{}".format(content.get("main_content", "")),
+                # Metadata section
+                "METADATA:\nTitle: {}\nMeta Description: {}".format(
+                    content.get("title", ""), content.get("meta_description", "")
+                ),
+                # Structure section
+                "DOCUMENT STRUCTURE:\n{}".format("\n".join(content.get("headers", []))),
+            ]
 
-            chunks = self.text_splitter.split_text(full_content)
-            vectorstore = FAISS.from_texts(texts=chunks, embedding=self.embeddings)
+            # Split each section separately for better chunk coherence
+            all_chunks = []
+            for section in document_sections:
+                chunks = self.text_splitter.split_text(section)
+                all_chunks.extend(chunks)
+
+            # Create metadata for each chunk to track its source
+            texts_with_sources = []
+            for chunk in all_chunks:
+                if "MAIN CONTENT:" in chunk:
+                    source_type = "main_content"
+                elif "METADATA:" in chunk:
+                    source_type = "metadata"
+                else:
+                    source_type = "structure"
+
+                texts_with_sources.append(
+                    {
+                        "text": chunk,
+                        "source": source_type,
+                        "url": content.get("url", ""),
+                    }
+                )
+
+            # Create vector store with metadata
+            vectorstore = FAISS.from_texts(
+                texts=[t["text"] for t in texts_with_sources],
+                embedding=self.embeddings,
+                metadatas=texts_with_sources,
+            )
 
             return vectorstore
+
         except Exception as e:
             logger.error(f"Error creating knowledge base: {str(e)}")
             raise
 
     def get_relevant_context(self, vectorstore: FAISS, keywords: List[str]) -> str:
-        """Retrieve relevant context based on keywords"""
+        """Retrieve relevant context with improved source awareness"""
         try:
             qa_chain = RetrievalQA.from_chain_type(
                 llm=ChatOpenAI(
@@ -139,11 +173,19 @@ Content Preview: {content_preview}"""
                 ),
                 chain_type="stuff",
                 retriever=vectorstore.as_retriever(
-                    search_type="mmr", search_kwargs={"k": 3}
+                    search_type="mmr",
+                    search_kwargs={
+                        "k": 3,
+                        "filter": {
+                            "source": "main_content"
+                        },  # Focus on main content first
+                    },
                 ),
             )
 
             contexts = []
+
+            # First get main content context
             for keyword in keywords:
                 queries = [
                     f"What are the key technical details about {keyword}?",
@@ -152,11 +194,50 @@ Content Preview: {content_preview}"""
                 ]
 
                 for query in queries:
-                    context = qa_chain.run(query)
-                    if context:
-                        contexts.append(context)
+                    main_context = qa_chain.run(query)
+                    if main_context:
+                        contexts.append(
+                            f"Technical Details ({keyword}):\n{main_context}"
+                        )
+
+            # Then get structural context
+            structure_qa_chain = RetrievalQA.from_chain_type(
+                llm=ChatOpenAI(
+                    model_name="gpt-4-turbo-preview", openai_api_key=self.api_key
+                ),
+                chain_type="stuff",
+                retriever=vectorstore.as_retriever(
+                    search_type="similarity",
+                    search_kwargs={"k": 2, "filter": {"source": "structure"}},
+                ),
+            )
+
+            structure_context = structure_qa_chain.run(
+                "What is the main structure and organization of this content?"
+            )
+            if structure_context:
+                contexts.append(f"Content Structure:\n{structure_context}")
+
+            # Finally get metadata context
+            metadata_qa_chain = RetrievalQA.from_chain_type(
+                llm=ChatOpenAI(
+                    model_name="gpt-4-turbo-preview", openai_api_key=self.api_key
+                ),
+                chain_type="stuff",
+                retriever=vectorstore.as_retriever(
+                    search_type="similarity",
+                    search_kwargs={"k": 1, "filter": {"source": "metadata"}},
+                ),
+            )
+
+            metadata_context = metadata_qa_chain.run(
+                "What are the key points from the title and meta description?"
+            )
+            if metadata_context:
+                contexts.append(f"Key Metadata:\n{metadata_context}")
 
             return "\n\n".join(contexts)
+
         except Exception as e:
             logger.error(f"Error retrieving context: {str(e)}")
             raise
@@ -205,3 +286,4 @@ Content Preview: {content_preview}"""
         except Exception as e:
             logger.error(f"Error generating content: {str(e)}")
             raise
+
