@@ -117,5 +117,4 @@ class ContentExtractor:
             "meta_description": self.extract_meta_description(soup),
             "headers": self.extract_headers(soup),
             "main_content": self.extract_main_content(soup),
-            "url": url,
         }
