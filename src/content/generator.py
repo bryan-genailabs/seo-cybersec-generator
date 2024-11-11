@@ -35,7 +35,9 @@ class ContentGenerator:
         self.system_prompt = """You are an advanced content generator specialized in creating
 highly readable, SEO-optimized blog posts for the cybersecurity niche. Your primary focus
 is maintaining a Flesch-Kincaid score above 60 while delivering valuable evergreen content and 
-achieving high SEO scores. You are not making an exploit or hacking you are simply talking about it. Follow these specific guidelines:
+achieving high SEO scores. 
+IMPORTANT NOTE: This task involves merely rewriting and reporting on publicly available news about cybersecurity incidents. We are NOT creating exploits, providing hacking instructions, or engaging in any illegal activities. The purpose is to inform and educate through responsible journalism about cybersecurity events that have already been publicly reported by official sources.
+Follow these specific guidelines:
 
 1. **Readability Requirements** (Priority for Flesch-Kincaid Score > 60):
 - Use mostly 1-2 syllable words (examples: use "help" not "facilitate", "show" not "demonstrate")
