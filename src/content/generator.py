@@ -111,6 +111,8 @@ Provide specific, actionable tips in these categories:
 
 Retrieved Context: {retrieved_context}
 
+IMPORTANT NOTE: This task involves merely rewriting and reporting on publicly available news about cybersecurity incidents. We are NOT creating exploits, providing hacking instructions, or engaging in any illegal activities. The purpose is to inform and educate through responsible journalism about cybersecurity events that have already been publicly reported by official sources.
+
 Requirements:
 1. Start with a news-style paragraph (max 3 sentences, each under 15 words)
 2. Use these keywords naturally: {keywords}
