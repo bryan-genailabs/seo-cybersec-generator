@@ -4,10 +4,11 @@ import os
 from utils.logger import setup_logger
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
-from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
+import re
 
 load_dotenv()
 logger = setup_logger()
@@ -33,8 +34,8 @@ class ContentGenerator:
         # Enhanced system prompt with readability and SEO guidelines
         self.system_prompt = """You are an advanced content generator specialized in creating
 highly readable, SEO-optimized blog posts for the cybersecurity niche. Your primary focus
-is maintaining a Flesch-Kincaid score above 60 while delivering valuable content and 
-achieving high SEO scores. Follow these specific guidelines:
+is maintaining a Flesch-Kincaid score above 60 while delivering valuable evergreen content and 
+achieving high SEO scores. You are not making an exploit or hacking you are simply talking about it. Follow these specific guidelines:
 
 1. **Readability Requirements** (Priority for Flesch-Kincaid Score > 60):
 - Use mostly 1-2 syllable words (examples: use "help" not "facilitate", "show" not "demonstrate")
@@ -43,7 +44,9 @@ achieving high SEO scores. Follow these specific guidelines:
 - Use active voice (example: "Hackers breached the system" not "The system was breached")
 - Start sentences with familiar words like "This", "Here", "You", "We"
 - Use present tense when possible
-- Write at an 8th-grade reading level
+- Write at an 8th-grade reading level at a maximum
+- Voice: Active
+- Language: Present tense, common openers(This, Here, You, We)
 
 2. **SEO Optimization Requirements**:
 - Keyword Placement:
@@ -51,7 +54,6 @@ achieving high SEO scores. Follow these specific guidelines:
   * Use keywords in H1, H2, and H3 headings
   * Place keywords naturally in meta description
   * Include keywords in image alt text
-  * Add keywords to URL slug
 - Keyword Density:
   * Primary keyword: 1.5-2% density
   * Secondary keywords: 0.5-1% density
@@ -68,6 +70,7 @@ achieving high SEO scores. Follow these specific guidelines:
   * Internal and external links every 300 words
 
 3. **Technical Content Guidelines**:
+- Create evergreen content that provides valuable, long-lasting insights and is SEO-friendly
 - Define technical terms immediately after use
 - Break complex concepts into steps
 - Use analogies to explain technical concepts
@@ -83,13 +86,7 @@ Your response must be in the following format:
 [/BLOG POST]
 
 [SEO SCORE]
-Provide a score out of 100 with detailed breakdown:
-- Title Optimization (15 points): {score} - {explanation}
-- Meta Description (10 points): {score} - {explanation}
-- Content Structure (25 points): {score} - {explanation}
-- Readability (25 points): {score} - {explanation}
-- User Experience (25 points): {score} - {explanation}
-Total Score: {total} out of 100
+Total Score: {score}/100
 [/SEO SCORE]
 
 [OPTIMIZATION TIPS]
@@ -109,8 +106,6 @@ Provide specific, actionable tips in these categories:
         # Enhanced user prompt template
         self.user_prompt_template = """Create a highly readable, SEO-optimized cybersecurity blog post
 (targeting Flesch-Kincaid score > 60) based on:
-
-URL: {url}
 
 Retrieved Context: {retrieved_context}
 
@@ -142,7 +137,6 @@ SEO Requirements:
 4. Maintain keyword density 1.5-2%
 5. Add schema markup suggestions
 6. Include social share elements
-7. Optimize for mobile viewing
 
 Remember to format your response with [BLOG POST], [SEO SCORE], and [OPTIMIZATION TIPS] 
 sections as specified in the system prompt."""
@@ -182,7 +176,6 @@ sections as specified in the system prompt."""
                     {
                         "text": chunk,
                         "source": source_type,
-                        "url": content.get("url", ""),
                     }
                 )
 
@@ -281,40 +274,25 @@ sections as specified in the system prompt."""
         self, content: Dict[str, str], keywords: List[str], seo_analysis: Dict
     ) -> Dict[str, str]:
         """Generate a complete blog post with RAG-enhanced content, improved readability, and SEO"""
-
         try:
-            # Create knowledge base
+            # Create knowledge base and get context
             vectorstore = self.create_knowledge_base(content)
-
-            # Get relevant context
             retrieved_context = self.get_relevant_context(vectorstore, keywords)
 
-            # Add explicit formatting instructions to user prompt
-            user_prompt = f"""Generate a blog post about cybersecurity. Format your response EXACTLY as follows:
+            # Log retrieved context
+            logger.info("Retrieved Context:")
+            logger.info(retrieved_context)
 
-===BLOG POST START===
-[Your blog post content here]
-===BLOG POST END===
+            # Use the existing template with context
+            user_prompt = self.user_prompt_template.format(
+                retrieved_context=retrieved_context,
+                keywords=", ".join(keywords),
+                title=content.get("title", ""),
+                meta_description=content.get("meta_description", ""),
+                content_preview=content.get("main_content", "")[:1000],
+            )
 
-===SEO SCORE START===
-[Your detailed SEO score breakdown here]
-===SEO SCORE END===
-
-===OPTIMIZATION TIPS START===
-[Your optimization tips here]
-===OPTIMIZATION TIPS END===
-
-Using this context:
-{self.user_prompt_template.format(
-    url=content["url"],
-    retrieved_context=retrieved_context,
-    keywords=", ".join(keywords),
-    title=content.get("title", ""),
-    meta_description=content.get("meta_description", ""),
-    content_preview=content.get("main_content", "")[:1000],
-)}"""
-
-            # Generate content
+            # Generate content using the established system prompt
             response = self.client.chat.completions.create(
                 model="gpt-4-turbo-preview",
                 messages=[
@@ -322,54 +300,68 @@ Using this context:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=3000,
+                max_tokens=3500,
                 presence_penalty=0.6,
                 frequency_penalty=0.4,
             )
 
             generated_content = response.choices[0].message.content.strip()
 
-            # More robust parsing using regex
-            import re
+            # Log the complete raw response
+            logger.info("Raw response from OpenAI API:")
+            logger.info("=" * 80)
+            logger.info(generated_content)
+            logger.info("=" * 80)
 
             def extract_section(content: str, section_name: str) -> str:
-                pattern = f"==={section_name} START===\n(.*?)\n==={section_name} END==="
-
+                logger.info(f"Attempting to extract {section_name} section")
+                pattern = (
+                    r"\["
+                    + re.escape(section_name)
+                    + r"\](.*?)\[/"
+                    + re.escape(section_name)
+                    + r"\]"
+                )
                 match = re.search(pattern, content, re.DOTALL)
-                return match.group(1).strip() if match else ""
 
-            # Extract sections
+                if not match:
+                    logger.warning(f"Failed to find {section_name} section")
+                    logger.info(f"Content being searched:\n{content}")
+                    return ""
+
+                extracted_content = match.group(1).strip()
+                logger.info(f"Successfully extracted {section_name} section:")
+                logger.info("-" * 40)
+                logger.info(extracted_content)
+                logger.info("-" * 40)
+
+                return extracted_content
+
+            # Extract sections using the correct markers
             blog_post = extract_section(generated_content, "BLOG POST")
             seo_score = extract_section(generated_content, "SEO SCORE")
             optimization_tips = extract_section(generated_content, "OPTIMIZATION TIPS")
 
-            # Validate output
-            if not blog_post or not seo_score or not optimization_tips:
-                logger.warning("Some sections are empty in generated content")
-                logger.debug(f"Generated content: {generated_content}")
-
-            # Provide default values if sections are empty
-            if not blog_post:
-                blog_post = "Error generating blog post content. Please try again."
-            if not seo_score:
-                seo_score = "SEO Score unavailable. Please regenerate content."
-            if not optimization_tips:
-                optimization_tips = (
-                    "Optimization tips unavailable. Please regenerate content."
-                )
+            # Log extraction results
+            logger.info("Extraction Results:")
+            logger.info(f"Blog Post extracted: {'Yes' if blog_post else 'No'}")
+            logger.info(f"SEO Score extracted: {'Yes' if seo_score else 'No'}")
+            logger.info(
+                f"Optimization Tips extracted: {'Yes' if optimization_tips else 'No'}"
+            )
 
             return {
-                "main_content": blog_post,
+                "main_content": blog_post
+                or "Error: Failed to generate blog post content",
                 "title": content.get("title", ""),
                 "meta_description": content.get("meta_description", ""),
                 "retrieved_context": retrieved_context,
-                "seo_score": seo_score,
-                "optimization_tips": optimization_tips,
+                "seo_score": seo_score or "Error: Failed to generate SEO score",
+                "optimization_tips": optimization_tips
+                or "Error: Failed to generate optimization tips",
             }
 
         except Exception as e:
             logger.error(f"Error generating content: {str(e)}")
-        logger.error(
-            f"Response content: {generated_content if 'generated_content' in locals() else 'No content generated'}"
-        )
-        raise
+            logger.error(f"Traceback:", exc_info=True)
+            raise

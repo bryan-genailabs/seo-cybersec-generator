@@ -288,31 +288,52 @@ class BlogGeneratorUI:
                     st.markdown("</div>", unsafe_allow_html=True)
 
             with right_col:
-                score = st.session_state.generated_content.get("seo_score", 0)
+                # Display SEO Score
+                seo_score = st.session_state.generated_content.get("seo_score", "")
+                score_match = re.search(r"Total Score:\s*(\d+)", seo_score)
+                score = score_match.group(1) if score_match else "0"
+
                 st.markdown(
                     f"""
                     <div class='seo-score'>
-                        <div style='font-size: 3rem; font-weight: bold; color: #854D0E;'>{score}</div>
+                        <h1 style='font-size: 3rem; font-weight: bold; color: #854D0E; margin: 0;'>{score}</h1>
                         <div style='color: #6B7280;'>out of 100</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
 
-                st.markdown("#### Optimization Tips")
-                improvements = st.session_state.generated_content.get(
-                    "improvements", []
+                # Display Optimization Tips
+                st.markdown("### Optimization Tips")
+                optimization_tips = st.session_state.generated_content.get(
+                    "optimization_tips", ""
                 )
-                for tip in improvements[:3]:
-                    st.markdown(
-                        f"""
-                        <div style='display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;'>
-                            <div style='width: 8px; height: 8px; border-radius: 50%; background-color: #22C55E;'></div>
-                            <div style='color: #374151;'>{tip}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+                if optimization_tips:
+                    # Process each line of the optimization tips
+                    current_category = None
+                    for line in optimization_tips.split("\n"):
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        # Check if this is a category header
+                        if re.match(r"^\d+\.\s+\w+", line):
+                            current_category = line
+                            st.markdown(f"**{current_category}**")
+                        # Check if this is a bullet point
+                        elif line.startswith("-"):
+                            tip = line[
+                                1:
+                            ].strip()  # Remove the dash and any leading whitespace
+                            st.markdown(
+                                f"""
+                                <div style='display: flex; align-items: start; gap: 0.5rem; margin: 0.5rem 0 0.5rem 1rem;'>
+                                    <div style='width: 8px; height: 8px; margin-top: 0.5rem; border-radius: 50%; background-color: #22C55E; flex-shrink: 0;'></div>
+                                    <div style='color: #374151;'>{tip}</div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
 
     def process_markdown(self, content: str) -> str:
         """Process markdown content for preview"""
@@ -398,4 +419,3 @@ class BlogGeneratorUI:
 if __name__ == "__main__":
     ui = BlogGeneratorUI()
     ui.run()
-
