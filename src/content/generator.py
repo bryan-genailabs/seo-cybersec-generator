@@ -298,7 +298,7 @@ sections as specified in the system prompt."""
 
             # Generate content using the established system prompt
             response = self.client.chat.completions.create(
-                model="gpt-4-turbo-preview",
+                model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": user_prompt},
