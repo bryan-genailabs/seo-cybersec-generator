@@ -1,5 +1,5 @@
 from openai import OpenAI
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Union
 import os
 from utils.logger import setup_logger
 from dotenv import load_dotenv
