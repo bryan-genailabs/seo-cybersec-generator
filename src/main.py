@@ -266,7 +266,7 @@ class BlogGeneratorUI:
 
         return "\n".join(processed_paragraphs)
 
-    def parse_json_response(self, response: str) -> dict:
+    def clean_and_parse_json_response(self, response: str) -> dict:
         """Parse JSON response from generator"""
         try:
             json_match = re.search(r"{.*}", response, re.DOTALL)
@@ -327,12 +327,18 @@ class BlogGeneratorUI:
                         st.session_state.keywords,
                     )
 
+                    cleaned_result = (
+                        self.content_generator.clean_and_parse_json_response(
+                            generated_result.get("raw_response", "")
+                        )
+                    )
+
                     # Update session state with all content including title
-                    st.session_state.generated_content = generated_result
-                    st.session_state.edited_content = generated_result.get(
+                    st.session_state.generated_content = cleaned_result
+                    st.session_state.edited_content = cleaned_result.get(
                         "blog_post", ""
                     )
-                    st.session_state.blog_title = generated_result.get("title", "")
+                    st.session_state.blog_title = cleaned_result.get("title", "")
 
                 st.markdown(
                     """
@@ -377,12 +383,11 @@ class BlogGeneratorUI:
                 if edited_content:
                     st.markdown(
                         """
-                            <div class="markdown-preview">
-                            <h4>Preview</h4>
-                            """,
+                        <div class="markdown-preview">
+                        <h4>Preview</h4>
+                        """,
                         unsafe_allow_html=True,
                     )
-                    # Display title in preview
                     if title:
                         st.markdown(f"# {title}")
                     preview_content = self.process_markdown(edited_content)
@@ -398,77 +403,67 @@ class BlogGeneratorUI:
 
                     st.markdown(
                         f"""
-                            <div class='seo-score'>
-                                <h1 style='font-size: 3rem; font-weight: bold; color: #854D0E; margin: 0;'>{score_value}</h1>
-                                <div style='color: #6B7280;'>out of 100</div>
-                            </div>
-                            """,
+                        <div class='seo-score'>
+                            <h1 style='font-size: 3rem; font-weight: bold; color: #854D0E; margin: 0;'>{score_value}</h1>
+                            <div style='color: #6B7280;'>out of 100</div>
+                        </div>
+                        """,
                         unsafe_allow_html=True,
                     )
 
                 # Display Optimization Tips
                 st.markdown("### Optimization Tips")
-                if st.session_state.generated_content.get("optimization_tips"):
-                    tips = st.session_state.generated_content["optimization_tips"]
+                tips = st.session_state.generated_content.get("optimization_tips", [])
 
-                    # Handle different formats of optimization tips
-                    if isinstance(tips, str):
-                        # Split string format into lines
-                        tip_lines = tips.split("\n")
-                        current_category = None
+                # Debug logging
+                logger.info(f"Tips before rendering: {json.dumps(tips, indent=2)}")
 
-                        for line in tip_lines:
-                            line = line.strip()
-                            if not line:
-                                continue
+                if isinstance(tips, str):
+                    try:
+                        tips = json.loads(tips)
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to parse tips JSON: {tips}")
 
-                            # Check if this is a category header
-                            if line.endswith(":") or re.match(r"^\d+\..*:", line):
-                                current_category = line.rstrip(":")
-                                st.markdown(f"**{current_category}**")
-                            # Check if this is a bullet point
-                            elif line.startswith("-") or line.startswith("•"):
-                                tip = (
-                                    line[1:].strip()
-                                    if line.startswith("-")
-                                    else line[1:].strip()
-                                )
-                                st.markdown(
-                                    f"""
-                                        <div style='display: flex; align-items: start; gap: 0.5rem; margin: 0.5rem 0 0.5rem 1rem;'>
-                                            <div style='width: 8px; height: 8px; margin-top: 0.5rem; border-radius: 50%; background-color: #22C55E; flex-shrink: 0;'></div>
-                                            <div style='color: #374151;'>{tip}</div>
-                                        </div>
-                                        """,
-                                    unsafe_allow_html=True,
-                                )
-                    elif isinstance(tips, dict):
-                        # Handle dictionary format
-                        for category, items in tips.items():
-                            st.markdown(f"**{category}**")
-                            if isinstance(items, list):
-                                for item in items:
-                                    st.markdown(
-                                        f"""
-                                            <div style='display: flex; align-items: start; gap: 0.5rem; margin: 0.5rem 0 0.5rem 1rem;'>
-                                                <div style='width: 8px; height: 8px; margin-top: 0.5rem; border-radius: 50%; background-color: #22C55E; flex-shrink: 0;'></div>
-                                                <div style='color: #374151;'>{item}</div>
-                                            </div>
-                                            """,
-                                        unsafe_allow_html=True,
-                                    )
-                    elif isinstance(tips, list):
-                        # Handle list format
-                        for tip in tips:
-                            st.markdown(
-                                f"""
-                                    <div style='display: flex; align-items: start; gap: 0.5rem; margin: 0.5rem 0;'>
-                                        <div style='width: 8px; height: 8px; margin-top: 0.5rem; border-radius: 50%; background-color: #22C55E; flex-shrink: 0;'></div>
-                                        <div style='color: #374151;'>{tip}</div>
-                                    </div>
-                                    """,
-                                unsafe_allow_html=True,
-                            )
+                if tips:
+                    self.render_optimization_tips(tips)
+                else:
+                    st.info("No optimization tips available")
+
+    def render_optimization_tips(self, tips):
+        """Render optimization tips with improved formatting"""
+        try:
+            # Debug logging
+            logger.info(f"Rendering tips: {json.dumps(tips, indent=2)}")
+
+            for tip_group in tips:
+                if isinstance(tip_group, dict):
+                    category = tip_group.get("category", "")
+                    tip_items = tip_group.get("tips", [])
+
+                    if category:
+                        st.markdown(
+                            f"""
+                            <div style='margin-top: 1rem;'>
+                                <strong style='font-size: 1.1rem; color: #1F2937;'>{category}</strong>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    for tip in tip_items:
+                        st.markdown(
+                            f"""
+                            <div style='display: flex; align-items: start; gap: 0.5rem; margin: 0.5rem 0 0.5rem 1rem;'>
+                                <div style='width: 8px; height: 8px; margin-top: 0.5rem; border-radius: 50%; background-color: #22C55E; flex-shrink: 0;'></div>
+                                <div style='color: #374151;'>{tip}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+        except Exception as e:
+            logger.error(f"Error rendering optimization tips: {str(e)}")
+            st.error("Error displaying optimization tips")
 
 
 if __name__ == "__main__":
