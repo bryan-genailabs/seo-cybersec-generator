@@ -2,7 +2,6 @@ import requests
 from bs4 import BeautifulSoup
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
-import logging
 from utils.logger import setup_logger
 
 logger = setup_logger()
