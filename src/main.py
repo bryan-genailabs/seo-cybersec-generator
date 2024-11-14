@@ -1,12 +1,12 @@
 import streamlit as st
 import re
+import json
 from content.extractor import ContentExtractor
 from content.generator import ContentGenerator
 from utils.logger import setup_logger
 from dotenv import load_dotenv
 
 load_dotenv()
-
 logger = setup_logger()
 
 
@@ -19,14 +19,16 @@ class BlogGeneratorUI:
 
     def setup_session_state(self):
         """Initialize session state variables"""
-        if "extracted_content" not in st.session_state:
-            st.session_state.extracted_content = None
-        if "keywords" not in st.session_state:
-            st.session_state.keywords = []
-        if "generated_content" not in st.session_state:
-            st.session_state.generated_content = None
-        if "edited_content" not in st.session_state:
-            st.session_state.edited_content = ""
+        defaults = {
+            "extracted_content": None,
+            "keywords": [],
+            "generated_content": None,
+            "edited_content": "",
+            "blog_title": "",  # Add title to session state
+        }
+        for key, default_value in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = default_value
 
     def setup_page_config(self):
         """Configure Streamlit page settings and styling"""
@@ -43,55 +45,28 @@ class BlogGeneratorUI:
                 .main > div {
                     padding-top: 2rem;
                 }
-                  .stTextInput > div > div > input {
-                padding: 0.75rem 1rem;
-                border-radius: 0.375rem;
-            }
-            .stButton > button,
-            button[kind="primary"],
-            .stFormSubmitter > button,
-            .main .element-container div[data-testid="stFormSubmitButton"] button {
-                background-color: rgb(79, 70, 229) !important;  /* indigo-600 */
-                border: none !important;
-                color: white !important;
-                padding: 0.75rem 1rem !important;
-                font-weight: 500 !important;
-                border-radius: 0.375rem !important;
-                width: 100% !important;
-                box-shadow: none !important;
-            }
-
-            .stButton > button:hover,
-            button[kind="primary"]:hover,
-            .stFormSubmitter > button:hover,
-            .main .element-container div[data-testid="stFormSubmitButton"] button:hover {
-                background-color: rgb(67, 56, 202) !important;  /* indigo-700 */
-                border: none !important;
-                box-shadow: none !important;
-            }
-
-            .stButton > button:focus,
-            button[kind="primary"]:focus,
-            .stFormSubmitter > button:focus,
-            .main .element-container div[data-testid="stFormSubmitButton"] button:focus {
-                box-shadow: none !important;
-                outline: none !important;
-            }
-
-            /* Ensure the form submit button specifically has correct styles */
-            div[data-testid="stFormSubmitButton"] {
-                width: 100% !important;
-            }
-            
-            div[data-testid="stFormSubmitButton"] > button {
-                background-color: rgb(79, 70, 229) !important;
-                color: white !important;
-                width: 100% !important;
-            }
-
-            div[data-testid="stFormSubmitButton"] > button:hover {
-                background-color: rgb(67, 56, 202) !important;
-            }
+                .stTextInput > div > div > input {
+                    padding: 0.75rem 1rem;
+                    border-radius: 0.375rem;
+                }
+                .stButton > button,
+                button[kind="primary"],
+                .stFormSubmitter > button,
+                .main .element-container div[data-testid="stFormSubmitButton"] button {
+                    background-color: rgb(79, 70, 229) !important;
+                    border: none !important;
+                    color: white !important;
+                    padding: 0.75rem 1rem !important;
+                    font-weight: 500 !important;
+                    border-radius: 0.375rem !important;
+                    width: 100% !important;
+                    box-shadow: none !important;
+                }
+                .stButton > button:hover,
+                button[kind="primary"]:hover,
+                .stFormSubmitter > button:hover {
+                    background-color: rgb(67, 56, 202) !important;
+                }
                 .preview-box {
                     padding: 1rem;
                     border: 1px solid #E5E7EB;
@@ -115,10 +90,12 @@ class BlogGeneratorUI:
                 .editor-container {
                     margin-bottom: 2rem;
                 }
-                .preview-header {
-                    font-size: 1.1rem;
-                    font-weight: 500;
-                    margin-bottom: 1rem;
+                .markdown-preview {
+                    margin-top: 2rem;
+                    padding: 1rem;
+                    border: 1px solid #E5E7EB;
+                    border-radius: 0.5rem;
+                    background-color: white;
                 }
                 .keyword-suggestion {
                     background-color: #F9FAFB;
@@ -168,11 +145,7 @@ class BlogGeneratorUI:
                 "volume": "25K",
                 "difficulty": "Medium",
             },
-            {
-                "keyword": "network security",
-                "volume": "18K",
-                "difficulty": "High",
-            },
+            {"keyword": "network security", "volume": "18K", "difficulty": "High"},
             {
                 "keyword": "security best practices",
                 "volume": "15K",
@@ -252,89 +225,6 @@ class BlogGeneratorUI:
             return url, keywords
         return None, None
 
-    def render_content_editor_and_preview(self):
-        """Render content editor and preview sections"""
-        if st.session_state.generated_content:
-            st.markdown("### Content Editor")
-
-            left_col, right_col = st.columns([7, 3])
-
-            with left_col:
-                initial_content = (
-                    st.session_state.edited_content
-                    if st.session_state.edited_content
-                    else st.session_state.generated_content.get("main_content", "")
-                )
-
-                edited_content = st.text_area(
-                    "Edit Generated Content",
-                    value=initial_content,
-                    height=400,
-                    key="content_editor",
-                )
-                st.session_state.edited_content = edited_content
-
-                if edited_content:
-                    st.markdown(
-                        """
-                        <div class="markdown-preview">
-                        <h4>Preview</h4>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                    preview_content = self.process_markdown(edited_content)
-                    st.markdown(preview_content, unsafe_allow_html=True)
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-            with right_col:
-                # Display SEO Score
-                seo_score = st.session_state.generated_content.get("seo_score", "")
-                score_match = re.search(r"Total Score:\s*(\d+)", seo_score)
-                score = score_match.group(1) if score_match else "0"
-
-                st.markdown(
-                    f"""
-                    <div class='seo-score'>
-                        <h1 style='font-size: 3rem; font-weight: bold; color: #854D0E; margin: 0;'>{score}</h1>
-                        <div style='color: #6B7280;'>out of 100</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                # Display Optimization Tips
-                st.markdown("### Optimization Tips")
-                optimization_tips = st.session_state.generated_content.get(
-                    "optimization_tips", ""
-                )
-                if optimization_tips:
-                    # Process each line of the optimization tips
-                    current_category = None
-                    for line in optimization_tips.split("\n"):
-                        line = line.strip()
-                        if not line:
-                            continue
-
-                        # Check if this is a category header
-                        if re.match(r"^\d+\.\s+\w+", line):
-                            current_category = line
-                            st.markdown(f"**{current_category}**")
-                        # Check if this is a bullet point
-                        elif line.startswith("-"):
-                            tip = line[
-                                1:
-                            ].strip()  # Remove the dash and any leading whitespace
-                            st.markdown(
-                                f"""
-                                <div style='display: flex; align-items: start; gap: 0.5rem; margin: 0.5rem 0 0.5rem 1rem;'>
-                                    <div style='width: 8px; height: 8px; margin-top: 0.5rem; border-radius: 50%; background-color: #22C55E; flex-shrink: 0;'></div>
-                                    <div style='color: #374151;'>{tip}</div>
-                                </div>
-                                """,
-                                unsafe_allow_html=True,
-                            )
-
     def process_markdown(self, content: str) -> str:
         """Process markdown content for preview"""
         if not content:
@@ -376,6 +266,48 @@ class BlogGeneratorUI:
 
         return "\n".join(processed_paragraphs)
 
+    def clean_and_parse_json_response(self, response: str) -> dict:
+        """Parse JSON response from generator"""
+        try:
+            json_match = re.search(r"{.*}", response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                content_dict = json.loads(json_str)
+                return {
+                    "title": content_dict.get("title", ""),
+                    "blog_post": content_dict.get("blog_post", ""),
+                    "seo_score": content_dict.get("seo_score", "0/100"),
+                    "optimization_tips": content_dict.get("optimization_tips", []),
+                }
+            else:
+                logger.warning("No JSON content found in response")
+                return {
+                    "title": "",
+                    "blog_post": response,
+                    "seo_score": "0/100",
+                    "optimization_tips": [],
+                }
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error: {str(e)}")
+            return {
+                "title": "",
+                "blog_post": response,
+                "seo_score": "0/100",
+                "optimization_tips": [],
+            }
+
+    def format_optimization_tips(self, tips) -> list:
+        """Format optimization tips for display"""
+        formatted_tips = []
+        if isinstance(tips, dict):
+            for category, items in tips.items():
+                formatted_tips.extend([f"• {item}" for item in items])
+        elif isinstance(tips, list):
+            formatted_tips.extend([f"• {tip}" for tip in tips])
+        elif isinstance(tips, str):
+            formatted_tips.append(f"• {tips}")
+        return formatted_tips
+
     def run(self):
         """Run the Streamlit application"""
         self.render_header()
@@ -384,23 +316,29 @@ class BlogGeneratorUI:
         if url:
             try:
                 with st.spinner("Processing content..."):
-                    # Extract content from URL
                     content = self.content_extractor.extract_content(url)
                     st.session_state.extracted_content = content
                     st.session_state.keywords = [
                         k.strip() for k in keywords.split(",") if k.strip()
                     ]
 
-                    # Generate optimized content
-                    generated_content = self.content_generator.generate_complete_post(
+                    generated_result = self.content_generator.generate_complete_post(
                         content,
                         st.session_state.keywords,
-                        {},  # Empty dict since we're using model's SEO scoring
                     )
-                    st.session_state.generated_content = generated_content
-                    st.session_state.edited_content = generated_content.get(
-                        "main_content", ""
+
+                    cleaned_result = (
+                        self.content_generator.clean_and_parse_json_response(
+                            generated_result.get("raw_response", "")
+                        )
                     )
+
+                    # Update session state with all content including title
+                    st.session_state.generated_content = cleaned_result
+                    st.session_state.edited_content = cleaned_result.get(
+                        "blog_post", ""
+                    )
+                    st.session_state.blog_title = cleaned_result.get("title", "")
 
                 st.markdown(
                     """
@@ -414,6 +352,118 @@ class BlogGeneratorUI:
                 st.error(f"Error: {str(e)}")
 
         self.render_content_editor_and_preview()
+
+    def render_content_editor_and_preview(self):
+        """Render content editor and preview sections"""
+        if st.session_state.generated_content:
+            st.markdown("### Content Editor")
+
+            left_col, right_col = st.columns([7, 3])
+
+            with left_col:
+                # Title input field
+                title = st.text_input(
+                    "Title",
+                    value=st.session_state.blog_title,
+                    key="title_editor",
+                    placeholder="Enter blog post title",
+                    help="Edit the blog post title",
+                )
+                st.session_state.blog_title = title
+
+                # Content editor
+                edited_content = st.text_area(
+                    "Edit Generated Content",
+                    value=st.session_state.edited_content,
+                    height=400,
+                    key="content_editor",
+                )
+                st.session_state.edited_content = edited_content
+
+                if edited_content:
+                    st.markdown(
+                        """
+                        <div class="markdown-preview">
+                        <h4>Preview</h4>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    if title:
+                        st.markdown(f"# {title}")
+                    preview_content = self.process_markdown(edited_content)
+                    st.markdown(preview_content, unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+            with right_col:
+                # Display SEO Score
+                if st.session_state.generated_content.get("seo_score"):
+                    score = st.session_state.generated_content["seo_score"]
+                    score_match = re.search(r"(\d+)", score)
+                    score_value = score_match.group(1) if score_match else "0"
+
+                    st.markdown(
+                        f"""
+                        <div class='seo-score'>
+                            <h1 style='font-size: 3rem; font-weight: bold; color: #854D0E; margin: 0;'>{score_value}</h1>
+                            <div style='color: #6B7280;'>out of 100</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                # Display Optimization Tips
+                st.markdown("### Optimization Tips")
+                tips = st.session_state.generated_content.get("optimization_tips", [])
+
+                # Debug logging
+                logger.info(f"Tips before rendering: {json.dumps(tips, indent=2)}")
+
+                if isinstance(tips, str):
+                    try:
+                        tips = json.loads(tips)
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to parse tips JSON: {tips}")
+
+                if tips:
+                    self.render_optimization_tips(tips)
+                else:
+                    st.info("No optimization tips available")
+
+    def render_optimization_tips(self, tips):
+        """Render optimization tips with improved formatting"""
+        try:
+            # Debug logging
+            logger.info(f"Rendering tips: {json.dumps(tips, indent=2)}")
+
+            for tip_group in tips:
+                if isinstance(tip_group, dict):
+                    category = tip_group.get("category", "")
+                    tip_items = tip_group.get("tips", [])
+
+                    if category:
+                        st.markdown(
+                            f"""
+                            <div style='margin-top: 1rem;'>
+                                <strong style='font-size: 1.1rem; color: #1F2937;'>{category}</strong>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    for tip in tip_items:
+                        st.markdown(
+                            f"""
+                            <div style='display: flex; align-items: start; gap: 0.5rem; margin: 0.5rem 0 0.5rem 1rem;'>
+                                <div style='width: 8px; height: 8px; margin-top: 0.5rem; border-radius: 50%; background-color: #22C55E; flex-shrink: 0;'></div>
+                                <div style='color: #374151;'>{tip}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+        except Exception as e:
+            logger.error(f"Error rendering optimization tips: {str(e)}")
+            st.error("Error displaying optimization tips")
 
 
 if __name__ == "__main__":
