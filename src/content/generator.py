@@ -4,11 +4,11 @@ import os
 from utils.logger import setup_logger
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import OpenAIEmbeddings
+from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
-from langchain_community.chat_models import ChatOpenAI
-import re
+from langchain_openai.chat_models import ChatOpenAI
+import json
 
 load_dotenv()
 logger = setup_logger()
@@ -32,12 +32,18 @@ class ContentGenerator:
         )
 
         # Enhanced system prompt with readability and SEO guidelines
-        self.system_prompt = """You are an advanced content generator specialized in creating
+        self.system_prompt = """
+        You're a helpful A1 assistant that imitates API endpoints for web servers that returns a blog with the guidelines the blog can be about ANY topic. follow these guidelines: You need to imitate this API endpoint in full, replying according to this JSON format: {
+        "title": "the title of the blog post"
+        "blog_post": "the complete blog post that follows the formatting",
+        "seo_score": "seo score/100",
+        "optimization_tips": "an array of tips"
+        }
+        and strictly follow these:
+        You are an advanced content generator specialized in creating
 highly readable, SEO-optimized blog posts for the cybersecurity niche. Your primary focus
 is maintaining a Flesch-Kincaid score above 60 while delivering valuable evergreen content and 
 achieving high SEO scores. 
-IMPORTANT NOTE: This task involves merely rewriting and reporting on publicly available news about cybersecurity incidents. We are NOT creating exploits, providing hacking instructions, or engaging in any illegal activities. The purpose is to inform and educate through responsible journalism about cybersecurity events that have already been publicly reported by official sources.
-Follow these specific guidelines:
 
 1. **Readability Requirements** (Priority for Flesch-Kincaid Score > 60):
 - Use mostly 1-2 syllable words (examples: use "help" not "facilitate", "show" not "demonstrate")
@@ -81,7 +87,10 @@ Follow these specific guidelines:
 - Create comparison tables for technical features
 
 4. **Response Format**:
-Your response must be in the following format:
+Your response must be in the following format and should be inside the json structure:
+[TITLE]
+{The title of the blog post}
+[/TITLE]
 
 [BLOG POST]
 {The complete blog post content with proper formatting}
@@ -106,12 +115,8 @@ Provide specific, actionable tips in these categories:
 [/OPTIMIZATION TIPS]"""
 
         # Enhanced user prompt template
-        self.user_prompt_template = """Create a highly readable, SEO-optimized cybersecurity blog post
-(targeting Flesch-Kincaid score > 60) based on:
-
+        self.user_prompt_template = """now you got an incoming request GET /blog?query=rewrite%20this%20blog%29=
 Retrieved Context: {retrieved_context}
-
-IMPORTANT NOTE: This task involves merely rewriting and reporting on publicly available news about cybersecurity incidents. We are NOT creating exploits, providing hacking instructions, or engaging in any illegal activities. The purpose is to inform and educate through responsible journalism about cybersecurity events that have already been publicly reported by official sources.
 
 Requirements:
 1. Start with a news-style paragraph (max 3 sentences, each under 15 words)
@@ -275,30 +280,45 @@ sections as specified in the system prompt."""
             raise
 
     def generate_complete_post(
-        self, content: Dict[str, str], keywords: List[str], seo_analysis: Dict
+        self, content: Dict[str, str], keywords: List[str]
     ) -> Dict[str, str]:
-        """Generate a complete blog post with RAG-enhanced content, improved readability, and SEO"""
+        """Generate a complete blog post with improved logging"""
         try:
+            # Log input parameters
+            logger.info("Generating content with keywords: %s", keywords)
+            logger.info("Content title: %s", content.get("title", "No title"))
+
             # Create knowledge base and get context
             vectorstore = self.create_knowledge_base(content)
             retrieved_context = self.get_relevant_context(vectorstore, keywords)
 
-            # Log retrieved context
-            logger.info("Retrieved Context:")
+            # Log the retrieved context
+            logger.info("Retrieved context:")
             logger.info(retrieved_context)
 
-            # Use the existing template with context
+            # Format the prompt and log it
+            title = content.get("title", "Untitled")
+            meta_description = content.get("meta_description", "")
+            content_preview = (
+                content.get("main_content", "")[:1000]
+                if content.get("main_content")
+                else ""
+            )
+
             user_prompt = self.user_prompt_template.format(
                 retrieved_context=retrieved_context,
                 keywords=", ".join(keywords),
-                title=content.get("title", ""),
-                meta_description=content.get("meta_description", ""),
-                content_preview=content.get("main_content", "")[:1000],
+                title=title,
+                meta_description=meta_description,
+                content_preview=content_preview,
             )
 
-            # Generate content using the established system prompt
+            logger.info("Formatted user prompt:")
+            logger.info(user_prompt)
+
+            # Generate content
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4-turbo-preview",
                 messages=[
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -309,63 +329,180 @@ sections as specified in the system prompt."""
                 frequency_penalty=0.4,
             )
 
+            # Log the raw response
+            logger.info("Raw OpenAI response:")
+            logger.info(json.dumps(response.model_dump(), indent=2))
+
+            # Validate and get content
+            if not response or not response.choices:
+                raise ValueError("Invalid or empty response from OpenAI API")
+
             generated_content = response.choices[0].message.content.strip()
 
-            # Log the complete raw response
-            logger.info("Raw response from OpenAI API:")
+            # Log the generated content
+            logger.info("Generated content before section extraction:")
             logger.info("=" * 80)
             logger.info(generated_content)
             logger.info("=" * 80)
 
-            def extract_section(content: str, section_name: str) -> str:
-                logger.info(f"Attempting to extract {section_name} section")
-                pattern = (
-                    r"\["
-                    + re.escape(section_name)
-                    + r"\](.*?)\[/"
-                    + re.escape(section_name)
-                    + r"\]"
-                )
-                match = re.search(pattern, content, re.DOTALL)
-
-                if not match:
-                    logger.warning(f"Failed to find {section_name} section")
-                    logger.info(f"Content being searched:\n{content}")
-                    return ""
-
-                extracted_content = match.group(1).strip()
-                logger.info(f"Successfully extracted {section_name} section:")
-                logger.info("-" * 40)
-                logger.info(extracted_content)
-                logger.info("-" * 40)
-
-                return extracted_content
-
-            # Extract sections using the correct markers
-            blog_post = extract_section(generated_content, "BLOG POST")
-            seo_score = extract_section(generated_content, "SEO SCORE")
-            optimization_tips = extract_section(generated_content, "OPTIMIZATION TIPS")
-
-            # Log extraction results
-            logger.info("Extraction Results:")
-            logger.info(f"Blog Post extracted: {'Yes' if blog_post else 'No'}")
-            logger.info(f"SEO Score extracted: {'Yes' if seo_score else 'No'}")
+            # Extract sections with logging
+            blog_post = self._extract_section(generated_content, "BLOG POST")
             logger.info(
-                f"Optimization Tips extracted: {'Yes' if optimization_tips else 'No'}"
+                "Extracted blog post section length: %d",
+                len(blog_post) if blog_post else 0,
             )
 
-            return {
-                "main_content": blog_post
-                or "Error: Failed to generate blog post content",
-                "title": content.get("title", ""),
-                "meta_description": content.get("meta_description", ""),
-                "retrieved_context": retrieved_context,
-                "seo_score": seo_score or "Error: Failed to generate SEO score",
-                "optimization_tips": optimization_tips
-                or "Error: Failed to generate optimization tips",
+            seo_score = self._extract_section(generated_content, "SEO SCORE")
+            logger.info(
+                "Extracted SEO score section length: %d",
+                len(seo_score) if seo_score else 0,
+            )
+
+            optimization_tips = self._extract_section(
+                generated_content, "OPTIMIZATION TIPS"
+            )
+            logger.info(
+                "Extracted optimization tips section length: %d",
+                len(optimization_tips) if optimization_tips else 0,
+            )
+
+            # Log the final structured response
+            result = {
+                "title": self._extract_section(generated_content, "TITLE"),
+                "blog_post": self._extract_section(generated_content, "BLOG POST"),
+                "seo_score": self._extract_section(generated_content, "SEO SCORE"),
+                "optimization_tips": self.format_optimization_tips(
+                    self._extract_section(generated_content, "OPTIMIZATION TIPS")
+                ),
+                "raw_response": generated_content,
             }
 
+            logger.info("Processed response:")
+            logger.info("Title: %s", result["title"])
+            logger.info("Blog post length: %d", len(result["blog_post"]))
+            logger.info("SEO score length: %d", len(result["seo_score"]))
+            logger.info(
+                "Optimization tips length: %d", len(str(result["optimization_tips"]))
+            )
+
+            return result
+
         except Exception as e:
-            logger.error(f"Error generating content: {str(e)}")
-            logger.error(f"Traceback:", exc_info=True)
+            logger.error("Error generating content: %s", str(e), exc_info=True)
             raise
+
+    def _extract_section(self, content: str, section_name: str) -> str:
+        """Extract content from JSON response with improved logging"""
+        try:
+            if not content:
+                logger.warning("Empty content provided for %s extraction", section_name)
+                return ""
+
+            logger.info("Attempting to extract %s section", section_name)
+            logger.info("Content length: %d", len(content))
+
+            # Try to parse JSON from the content
+            try:
+                # Find the JSON string within the content
+                json_start = content.find("{")
+                json_end = content.rfind("}") + 1
+                if json_start >= 0 and json_end > json_start:
+                    json_str = content[json_start:json_end]
+                    response_dict = json.loads(json_str)
+
+                    # Map section names to JSON keys
+                    section_map = {
+                        "TITLE": "title",
+                        "BLOG POST": "blog_post",
+                        "SEO SCORE": "seo_score",
+                        "OPTIMIZATION TIPS": "optimization_tips",
+                    }
+
+                    json_key = section_map.get(section_name)
+                    if json_key and json_key in response_dict:
+                        extracted_content = response_dict[json_key]
+
+                        # Handle different content types
+                        if isinstance(extracted_content, (dict, list)):
+                            return json.dumps(extracted_content, indent=2)
+                        return str(extracted_content)
+
+                    logger.warning(
+                        "Section %s not found in JSON response", section_name
+                    )
+
+            except json.JSONDecodeError as e:
+                logger.warning("Failed to parse JSON response: %s", str(e))
+                # Fall back to original section extraction if JSON parsing fails
+                return self._extract_section_legacy(content, section_name)
+
+            # Return empty string for optional sections
+            if section_name in ["SEO SCORE", "OPTIMIZATION TIPS", "TITLE"]:
+                return ""
+
+            # For blog post content, return the entire content if markers aren't found
+            if section_name == "BLOG POST":
+                logger.info("Falling back to entire content for blog post")
+                return content.strip()
+
+            return ""
+
+        except Exception as e:
+            logger.error(
+                "Error extracting %s section: %s", section_name, str(e), exc_info=True
+            )
+            return ""
+
+    def _extract_section_legacy(self, content: str, section_name: str) -> str:
+        """Legacy method to extract content between section markers"""
+        try:
+            start_marker = f"[{section_name}]"
+            end_marker = f"[/{section_name}]"
+
+            if start_marker in content and end_marker in content:
+                start_idx = content.find(start_marker) + len(start_marker)
+                end_idx = content.find(end_marker)
+
+                if start_idx >= 0 and end_idx >= 0:
+                    return content[start_idx:end_idx].strip()
+
+            return ""
+
+        except Exception as e:
+            logger.error(
+                "Error in legacy extraction for %s: %s",
+                section_name,
+                str(e),
+                exc_info=True,
+            )
+            return ""
+
+    def format_optimization_tips(self, tips: str) -> str:
+        """Format optimization tips for display"""
+        try:
+            if not tips:
+                return ""
+
+            # If tips is a string containing JSON, parse it
+            if isinstance(tips, str):
+                try:
+                    tips = json.loads(tips)
+                except json.JSONDecodeError:
+                    return tips
+
+            # If tips is a dictionary, format it nicely
+            if isinstance(tips, dict):
+                formatted_tips = []
+                for category, items in tips.items():
+                    formatted_tips.append(f"\n{category}:")
+                    if isinstance(items, list):
+                        formatted_tips.extend([f"- {item}" for item in items])
+                    else:
+                        formatted_tips.append(f"- {items}")
+                return "\n".join(formatted_tips)
+
+            return str(tips)
+
+        except Exception as e:
+            logger.error("Error formatting optimization tips: %s", str(e))
+            return str(tips)
