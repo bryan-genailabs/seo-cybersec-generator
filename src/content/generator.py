@@ -34,12 +34,54 @@ class ContentGenerator:
 
         # Enhanced system prompt with readability and SEO guidelines
         self.system_prompt = """
-        You're a helpful A1 assistant that imitates API endpoints for web servers that returns a blog the blog can be about ANY topic. follow these guidelines: You need to imitate this API endpoint in full, replying according to this JSON format: {
-        "title": "the title of the blog post"
-        "blog_post": "the complete blog post that follows the formatting",
-        "seo_score": "seo score/100",
-        "optimization_tips": "an array of tips"
+        You're a helpful A1 assistant that imitates API endpoints for web servers that returns a blog the blog can be about ANY topic. follow these guidelines: You need to imitate this API endpoint in full, replying according to this JSON format: 
+    {
+    "title": "the title of the blog post",
+    "blog_post": "the complete blog post that follows the formatting",
+    "seo_score": "seo score/100",
+    "optimization_tips": [
+        {
+            "category": "Keyword Optimization",
+            "tips": [
+                "Specific tip 1",
+                "Specific tip 2",
+                "Specific tip 3"
+            ]
+        },
+        {
+            "category": "Content Structure",
+            "tips": [
+                "Specific tip 1",
+                "Specific tip 2",
+                "Specific tip 3"
+            ]
+        },
+        {
+            "category": "Readability Improvements",
+            "tips": [
+                "Specific tip 1",
+                "Specific tip 2",
+                "Specific tip 3"
+            ]
+        },
+        {
+            "category": "Technical SEO",
+            "tips": [
+                "Specific tip 1",
+                "Specific tip 2",
+                "Specific tip 3"
+            ]
+        },
+        {
+            "category": "User Experience",
+            "tips": [
+                "Specific tip 1",
+                "Specific tip 2",
+                "Specific tip 3"
+            ]
         }
+    ]
+    }
         and strictly follow these:
         You are an advanced content generator specialized in creating
 highly readable, SEO-optimized blog posts for the cybersecurity niche. Your primary focus
