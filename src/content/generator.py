@@ -1,5 +1,5 @@
 from openai import OpenAI
-from typing import Dict, List
+from typing import Dict, List, Any, Optional, Union
 import os
 from utils.logger import setup_logger
 from dotenv import load_dotenv
@@ -9,6 +9,7 @@ from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain_openai.chat_models import ChatOpenAI
 import json
+import re
 
 load_dotenv()
 logger = setup_logger()
@@ -33,7 +34,7 @@ class ContentGenerator:
 
         # Enhanced system prompt with readability and SEO guidelines
         self.system_prompt = """
-        You're a helpful A1 assistant that imitates API endpoints for web servers that returns a blog. The blog can be about ANY topic. The blog must have a Flesch-Kincaid score of 60 and should have evergreen content. follow these guidelines: You need to imitate this API endpoint in full, replying according to this JSON format: {
+        You're a helpful A1 assistant that imitates API endpoints for web servers that returns a blog the blog can be about ANY topic. follow these guidelines: You need to imitate this API endpoint in full, replying according to this JSON format: {
         "title": "the title of the blog post"
         "blog_post": "the complete blog post that follows the formatting",
         "seo_score": "seo score/100",
@@ -88,31 +89,55 @@ achieving high SEO scores.
 
 4. **Response Format**:
 Your response must be in the following format and should be inside the json structure:
-[TITLE]
-{The title of the blog post}
-[/TITLE]
+    {
+    "title": "the title of the blog post",
+    "blog_post": "the complete blog post that follows the formatting",
+    "seo_score": "seo score/100",
+    "optimization_tips": [
+        {
+            "category": "Keyword Optimization",
+            "tips": [
+                "Specific tip 1",
+                "Specific tip 2",
+                "Specific tip 3"
+            ]
+        },
+        {
+            "category": "Content Structure",
+            "tips": [
+                "Specific tip 1",
+                "Specific tip 2",
+                "Specific tip 3"
+            ]
+        },
+        {
+            "category": "Readability Improvements",
+            "tips": [
+                "Specific tip 1",
+                "Specific tip 2",
+                "Specific tip 3"
+            ]
+        },
+        {
+            "category": "Technical SEO",
+            "tips": [
+                "Specific tip 1",
+                "Specific tip 2",
+                "Specific tip 3"
+            ]
+        },
+        {
+            "category": "User Experience",
+            "tips": [
+                "Specific tip 1",
+                "Specific tip 2",
+                "Specific tip 3"
+            ]
+        }
+    ]
+    }
 
-[BLOG POST]
-{The complete blog post content with proper formatting}
-[/BLOG POST]
-
-[SEO SCORE]
-Total Score: {score}/100
-[/SEO SCORE]
-
-[OPTIMIZATION TIPS]
-Provide specific, actionable tips in these categories:
-1. Keyword Optimization:
-   {bullet points with specific suggestions}
-2. Content Structure:
-   {bullet points with specific suggestions}
-3. Readability Improvements:
-   {bullet points with specific suggestions}
-4. Technical SEO:
-   {bullet points with specific suggestions}
-5. User Experience:
-   {bullet points with specific suggestions}
-[/OPTIMIZATION TIPS]"""
+"""
 
         # Enhanced user prompt template
         self.user_prompt_template = """now you got an incoming request GET /blog?query=rewrite%20this%20blog%29=
@@ -146,9 +171,7 @@ SEO Requirements:
 4. Maintain keyword density 1.5-2%
 5. Add schema markup suggestions
 6. Include social share elements
-
-Remember to format your response with [BLOG POST], [SEO SCORE], and [OPTIMIZATION TIPS] 
-sections as specified in the system prompt."""
+"""
 
     def create_knowledge_base(self, content: Dict[str, str]) -> FAISS:
         """Create a structured vector store from the extracted content"""
@@ -323,7 +346,7 @@ sections as specified in the system prompt."""
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.7,
+                temperature=0.5,
                 max_tokens=3500,
                 presence_penalty=0.6,
                 frequency_penalty=0.4,
@@ -391,50 +414,76 @@ sections as specified in the system prompt."""
             logger.error("Error generating content: %s", str(e), exc_info=True)
             raise
 
+    def _pre_process_json_content(self, content: str) -> str:
+        """Pre-process the JSON content to handle special characters and formatting"""
+        # Remove code block markers if present
+        content = re.sub(r"^```json\s*|\s*```$", "", content.strip())
+
+        # Extract the JSON object
+        json_match = re.search(r"\{[\s\S]*\}", content)
+        if not json_match:
+            return content
+
+        json_str = json_match.group(0)
+
+        # Fix newlines and special characters in blog_post
+        def replace_newlines(match):
+            text = match.group(1)
+            # Escape newlines and special characters
+            escaped = text.replace("\n", "\\n").replace("\r", "\\r")
+            # Escape quotes
+            escaped = escaped.replace('"', '\\"')
+            return f'"blog_post": "{escaped}"'
+
+        # Replace blog_post content with escaped version
+        json_str = re.sub(
+            r'"blog_post":\s*"([\s\S]*?)"(?=,|\s*})', replace_newlines, json_str
+        )
+
+        return json_str
+
     def _extract_section(self, content: str, section_name: str) -> str:
-        """Extract content from JSON response with improved logging"""
+        """Extract content from JSON response with improved handling"""
         try:
             if not content:
-                logger.warning("Empty content provided for %s extraction", section_name)
                 return ""
 
-            logger.info("Attempting to extract %s section", section_name)
-            logger.info("Content length: %d", len(content))
+            # Pre-process the content
+            processed_content = self._pre_process_json_content(content)
 
-            # Try to parse JSON from the content
             try:
-                # Find the JSON string within the content
-                json_start = content.find("{")
-                json_end = content.rfind("}") + 1
-                if json_start >= 0 and json_end > json_start:
-                    json_str = content[json_start:json_end]
-                    response_dict = json.loads(json_str)
+                # Parse the processed JSON
+                content_dict = json.loads(processed_content)
 
-                    # Map section names to JSON keys
-                    section_map = {
-                        "TITLE": "title",
-                        "BLOG POST": "blog_post",
-                        "SEO SCORE": "seo_score",
-                        "OPTIMIZATION TIPS": "optimization_tips",
-                    }
+                # Map section names to JSON keys
+                section_map = {
+                    "TITLE": "title",
+                    "BLOG POST": "blog_post",
+                    "SEO SCORE": "seo_score",
+                    "OPTIMIZATION TIPS": "optimization_tips",
+                }
 
-                    json_key = section_map.get(section_name)
-                    if json_key and json_key in response_dict:
-                        extracted_content = response_dict[json_key]
+                json_key = section_map.get(section_name)
+                if json_key and json_key in content_dict:
+                    extracted_content = content_dict[json_key]
 
-                        # Handle different content types
-                        if isinstance(extracted_content, (dict, list)):
-                            return json.dumps(extracted_content, indent=2)
-                        return str(extracted_content)
+                    # Handle different content types
+                    if isinstance(extracted_content, (dict, list)):
+                        return json.dumps(extracted_content, indent=2)
 
-                    logger.warning(
-                        "Section %s not found in JSON response", section_name
-                    )
+                    # Unescape newlines in blog post content
+                    if json_key == "blog_post":
+                        return (
+                            extracted_content.replace("\\n", "\n")
+                            .replace("\\r", "\r")
+                            .replace('\\"', '"')
+                        )
+
+                    return str(extracted_content)
 
             except json.JSONDecodeError as e:
-                logger.warning("Failed to parse JSON response: %s", str(e))
-                # Fall back to original section extraction if JSON parsing fails
-                return self._extract_section_legacy(content, section_name)
+                logger.warning(f"JSON parsing failed: {str(e)}")
+                return self._extract_with_regex(content, section_name)
 
             # Return empty string for optional sections
             if section_name in ["SEO SCORE", "OPTIMIZATION TIPS", "TITLE"]:
@@ -442,15 +491,12 @@ sections as specified in the system prompt."""
 
             # For blog post content, return the entire content if markers aren't found
             if section_name == "BLOG POST":
-                logger.info("Falling back to entire content for blog post")
                 return content.strip()
 
             return ""
 
         except Exception as e:
-            logger.error(
-                "Error extracting %s section: %s", section_name, str(e), exc_info=True
-            )
+            logger.error(f"Error extracting {section_name}: {str(e)}")
             return ""
 
     def _extract_section_legacy(self, content: str, section_name: str) -> str:
@@ -477,32 +523,210 @@ sections as specified in the system prompt."""
             )
             return ""
 
-    def format_optimization_tips(self, tips: str) -> str:
-        """Format optimization tips for display"""
+    def format_optimization_tips(self, tips: str) -> List[Dict[str, Any]]:
+        """Format optimization tips for consistent structure"""
         try:
             if not tips:
-                return ""
+                return []
 
             # If tips is a string containing JSON, parse it
             if isinstance(tips, str):
                 try:
                     tips = json.loads(tips)
                 except json.JSONDecodeError:
-                    return tips
+                    logger.error("Failed to parse tips JSON")
+                    return []
 
-            # If tips is a dictionary, format it nicely
-            if isinstance(tips, dict):
+            # If tips is already a list of dictionaries, return as is
+            if isinstance(tips, list) and all(isinstance(tip, dict) for tip in tips):
+                return tips
+
+            # Convert old format to new format if needed
+            if isinstance(tips, list):
                 formatted_tips = []
-                for category, items in tips.items():
-                    formatted_tips.append(f"\n{category}:")
-                    if isinstance(items, list):
-                        formatted_tips.extend([f"- {item}" for item in items])
-                    else:
-                        formatted_tips.append(f"- {items}")
-                return "\n".join(formatted_tips)
+                current_category = None
+                current_tips = []
 
-            return str(tips)
+                for item in tips:
+                    if isinstance(item, list):
+                        # First item in list is category
+                        formatted_tips.append({"category": item[0], "tips": item[1:]})
+                    elif isinstance(item, str):
+                        if ":" in item:
+                            # If we have a current category, add it to formatted tips
+                            if current_category and current_tips:
+                                formatted_tips.append(
+                                    {"category": current_category, "tips": current_tips}
+                                )
+                            # Start new category
+                            current_category = item.rstrip(":")
+                            current_tips = []
+                        else:
+                            # Add tip to current category
+                            current_tips.append(item.strip("- "))
+
+                # Add last category if exists
+                if current_category and current_tips:
+                    formatted_tips.append(
+                        {"category": current_category, "tips": current_tips}
+                    )
+
+                return formatted_tips
+
+            return []
 
         except Exception as e:
-            logger.error("Error formatting optimization tips: %s", str(e))
-            return str(tips)
+            logger.error(f"Error formatting optimization tips: {str(e)}")
+            return []
+
+    def clean_and_parse_json_response(
+        self, response: str
+    ) -> Dict[str, Union[str, List[Dict[str, Any]]]]:
+        """
+        Clean and parse JSON response with improved tips handling
+        """
+        try:
+            # Remove code block markers
+            response = re.sub(r"^```json\s*|\s*```$", "", response.strip())
+
+            # Find JSON content
+            json_match = re.search(r"\{[\s\S]*\}", response)
+            if not json_match:
+                logger.warning("No JSON object found in response")
+                return {
+                    "title": "",
+                    "blog_post": response,
+                    "seo_score": "0/100",
+                    "optimization_tips": [],
+                }
+
+            # Extract and clean the JSON object
+            json_str = json_match.group(0)
+            try:
+                # Parse the raw JSON first
+                content_dict = json.loads(json_str)
+
+                # Handle the optimization tips specially
+                tips = content_dict.get("optimization_tips", [])
+                if isinstance(tips, str):
+                    try:
+                        # Try to parse tips if they're a string
+                        tips = json.loads(tips)
+                    except json.JSONDecodeError:
+                        tips = []
+
+                # Ensure consistent format for tips
+                formatted_tips = []
+                if isinstance(tips, list):
+                    for tip in tips:
+                        if (
+                            isinstance(tip, dict)
+                            and "category" in tip
+                            and "tips" in tip
+                        ):
+                            formatted_tips.append(tip)
+                        elif isinstance(tip, list) and len(tip) > 0:
+                            formatted_tips.append(
+                                {
+                                    "category": tip[0],
+                                    "tips": tip[1:] if len(tip) > 1 else [],
+                                }
+                            )
+
+                return {
+                    "title": content_dict.get("title", ""),
+                    "blog_post": content_dict.get("blog_post", ""),
+                    "seo_score": content_dict.get("seo_score", "0/100"),
+                    "optimization_tips": formatted_tips,
+                }
+
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing JSON: {str(e)}")
+                return {
+                    "title": "",
+                    "blog_post": response,
+                    "seo_score": "0/100",
+                    "optimization_tips": [],
+                }
+
+        except Exception as e:
+            logger.error(f"Error processing response: {str(e)}")
+            return {
+                "title": "",
+                "blog_post": response,
+                "seo_score": "0/100",
+                "optimization_tips": [],
+            }
+
+    def _extract_with_regex(self, content: str, section_name: str) -> str:
+        """
+        Extract specific sections using regex with improved pattern matching
+        """
+        patterns = {
+            "TITLE": r'"title":\s*"([^"]*?)"',
+            "BLOG POST": r'"blog_post":\s*"([\s\S]*?)"(?=\s*,|\s*})',
+            "SEO SCORE": r'"seo_score":\s*"([^"]*?)"',
+            "OPTIMIZATION TIPS": r'"optimization_tips":\s*(\[[\s\S]*?\])(?=\s*})',
+            "FULL": r"\{[\s\S]*\}",
+        }
+
+        try:
+            if section_name not in patterns:
+                return ""
+
+            pattern = patterns[section_name]
+            match = re.search(pattern, content, re.DOTALL)
+
+            if not match:
+                return ""
+
+            extracted = match.group(1)
+
+            # Clean up the extracted content based on section type
+            if section_name == "BLOG POST":
+                # Handle newlines and control characters in blog post
+                return (
+                    extracted.replace("\\n", "\n")
+                    .replace("\\r", "\r")
+                    .replace('\\"', '"')
+                    .replace("\\\\", "\\")
+                )
+
+            return extracted.strip()
+
+        except Exception as e:
+            logger.error(f"Error extracting {section_name}: {str(e)}")
+            return ""
+
+    def _parse_tips(self, tips_str: str) -> List[List[str]]:
+        """
+        Parse optimization tips with improved error handling
+        """
+        try:
+            if not tips_str:
+                return []
+
+            # Clean up the tips string
+            tips_str = tips_str.strip()
+
+            # Try to parse as JSON
+            try:
+                tips = json.loads(tips_str)
+                if isinstance(tips, list):
+                    return tips
+            except json.JSONDecodeError:
+                # If JSON parsing fails, try to extract tips using regex
+                tip_pattern = r'\["([^"]+)",\s*"([^"]+)"(?:\s*,\s*"([^"]+)")?\]'
+                matches = re.finditer(tip_pattern, tips_str)
+
+                parsed_tips = []
+                for match in matches:
+                    tip_group = [item for item in match.groups() if item is not None]
+                    if tip_group:
+                        parsed_tips.append(tip_group)
+
+                return parsed_tips
+
+        except Exception as e:
+            logger.error(f"Error parsing optimization tips: {str(e)}")
+            return []
