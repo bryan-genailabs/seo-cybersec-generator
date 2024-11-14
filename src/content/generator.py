@@ -33,7 +33,7 @@ class ContentGenerator:
 
         # Enhanced system prompt with readability and SEO guidelines
         self.system_prompt = """
-        You're a helpful A1 assistant that imitates API endpoints for web servers that returns a blog with the guidelines the blog can be about ANY topic. follow these guidelines: You need to imitate this API endpoint in full, replying according to this JSON format: {
+        You're a helpful A1 assistant that imitates API endpoints for web servers that returns a blog. The blog can be about ANY topic. The blog must have a Flesch-Kincaid score of 60 and should have evergreen content. follow these guidelines: You need to imitate this API endpoint in full, replying according to this JSON format: {
         "title": "the title of the blog post"
         "blog_post": "the complete blog post that follows the formatting",
         "seo_score": "seo score/100",
