@@ -3,6 +3,8 @@ from bs4 import BeautifulSoup
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
 from utils.logger import setup_logger
+import Retry
+import HTTPAdapter
 
 logger = setup_logger()
 
@@ -12,6 +14,15 @@ class ContentExtractor:
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
+        self.session = requests.Session()
+        retry_strategy = Retry(
+            total=5,  # More retries
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
 
     def validate_url(self, url: str) -> bool:
         """Validate URL format"""
@@ -25,7 +36,9 @@ class ContentExtractor:
     def fetch_content(self, url: str) -> str:
         """Fetch content from URL"""
         try:
-            response = requests.get(url, headers=self.headers, timeout=10)
+            response = requests.get(
+                url, headers=self.headers, timeout=(30, 60), allow_redirects=True
+            )
             response.raise_for_status()
             return response.text
         except requests.RequestException as e:
