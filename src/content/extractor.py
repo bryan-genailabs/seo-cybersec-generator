@@ -3,8 +3,8 @@ from bs4 import BeautifulSoup
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
 from utils.logger import setup_logger
-import Retry
-import HTTPAdapter
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = setup_logger()
 
