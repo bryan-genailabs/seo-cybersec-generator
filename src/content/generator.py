@@ -101,6 +101,7 @@ achieving high SEO scores.
 
 2. **SEO Optimization Requirements**:
 - Keyword Placement:
+  * Use these keywords naturally: {keywords}
   * Include primary keyword in first paragraph
   * Use keywords in H1, H2, and H3 headings
   * Place keywords naturally in meta description
@@ -187,10 +188,9 @@ Retrieved Context: {retrieved_context}
 
 Requirements:
 1. Start with a news-style paragraph (max 3 sentences, each under 15 words)
-2. Use these keywords naturally: {keywords}
-3. Break down technical concepts into simple terms
-4. Include "Quick Tips" boxes after complex sections
-5. Add examples after technical explanations
+2. Break down technical concepts into simple terms
+3. Include "Quick Tips" boxes after complex sections
+4. Add examples after technical explanations
 
 Content Structure:
 - Title: {title}
